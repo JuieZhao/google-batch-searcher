@@ -147,6 +147,14 @@ class GoogleBatchSearcher:
         self.log_text.see(tk.END)
         self.log_text.configure(state=tk.DISABLED)
 
+    def _browse_excel(self):
+        path = filedialog.askopenfilename(
+            title="选择 Excel 文件",
+            filetypes=[("Excel 文件", "*.xlsx *.xls"), ("所有文件", "*.*")]
+        )
+        if path:
+            self.excel_path_var.set(path)
+
     def _google_search(self, query: str, num: int = 10, lang: str = "zh") -> list[str]:
         """手动抓取 Google 搜索结果链接，返回 URL 列表"""
         urls = []
