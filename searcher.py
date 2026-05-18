@@ -248,7 +248,7 @@ class GoogleBatchSearcher:
                 include_kw = [k.strip().lower() for k in filter_kw.replace("，", ",").split(",") if k.strip()] if filter_kw else []
 
                 try:
-                    results = list(search(query, num_results=num_results, lang="zh", sleep_interval=0))
+                    results = list(search(query, num=num_results, lang="zh", pause=0))
                 except Exception as e:
                     self._log(f"⚠️ 搜索失败: {e}")
                     time.sleep(delay)
