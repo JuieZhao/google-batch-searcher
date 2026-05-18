@@ -1,11 +1,15 @@
 @echo off
-title Google 批量搜索工具
+chcp 65001 >nul 2>&1
+title Google Batch Search
 cd /d "%~dp0"
 python searcher.py
 if %errorlevel% neq 0 (
     echo.
-    echo 启动失败！请确认已安装依赖：
+    echo ========================================
+    echo Start failed! Error code: %errorlevel%
+    echo Please install dependencies:
     echo   pip install google openpyxl
+    echo ========================================
     echo.
 )
 pause
