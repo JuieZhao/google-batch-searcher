@@ -1,2 +1,3 @@
-google
+requests
+beautifulsoup4
 openpyxl

@@ -8,7 +8,7 @@ if %errorlevel% neq 0 (
     echo ========================================
     echo Start failed! Error code: %errorlevel%
     echo Please install dependencies:
-    echo   pip install google openpyxl
+    echo   pip install requests beautifulsoup4 openpyxl
     echo ========================================
     echo.
 )

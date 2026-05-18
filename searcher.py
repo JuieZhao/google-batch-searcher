@@ -12,11 +12,17 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 
+import requests
+from bs4 import BeautifulSoup
 import openpyxl
-from googlesearch import search
+import urllib.parse
 
 
 class GoogleBatchSearcher:
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    }
     def __init__(self, root):
         self.root = root
         self.root.title("Google 批量搜索工具")
@@ -141,7 +147,57 @@ class GoogleBatchSearcher:
         self.log_text.see(tk.END)
         self.log_text.configure(state=tk.DISABLED)
 
-    def _browse_excel(self):
+    def _google_search(self, query: str, num: int = 10, lang: str = "zh") -> list[str]:
+        """手动抓取 Google 搜索结果链接，返回 URL 列表"""
+        urls = []
+        params = {
+            "q": query,
+            "num": min(num, 20),
+            "hl": lang,
+        }
+        encoded = urllib.parse.urlencode(params)
+        url = f"https://www.google.com/search?{encoded}"
+
+        try:
+            resp = requests.get(url, headers=self.HEADERS, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # 现代 Google 搜索结果结构
+            for g in soup.select("a[href^='/url?q=']"):
+                href = g.get("href", "")
+                if not href:
+                    continue
+                # 提取真实 URL
+                parsed = urllib.parse.urlparse(href)
+                qs = urllib.parse.parse_qs(parsed.query)
+                real_url = qs.get("q", [None])[0]
+                if real_url and real_url.startswith("http"):
+                    if real_url not in urls:
+                        urls.append(real_url)
+                if len(urls) >= num:
+                    break
+
+            # 备用选择器（如果上面的没抓到）
+            if not urls:
+                for link in soup.select("a[href]"):
+                    href = link.get("href", "")
+                    if href.startswith("/url?q=") and "google" not in href:
+                        real = href.split("/url?q=")[1].split("&")[0]
+                        real = urllib.parse.unquote(real)
+                        if real.startswith("http") and real not in urls:
+                            urls.append(real)
+                        if len(urls) >= num:
+                            break
+
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                raise Exception("Google 返回 429 (请求太频繁)，请增大搜索间隔或稍后再试")
+            raise
+        except requests.exceptions.Timeout:
+            raise Exception("请求超时，请检查网络或稍后重试")
+
+        return urls
         path = filedialog.askopenfilename(
             title="选择 Excel 文件",
             filetypes=[("Excel 文件", "*.xlsx *.xls"), ("所有文件", "*.*")]
@@ -248,7 +304,7 @@ class GoogleBatchSearcher:
                 include_kw = [k.strip().lower() for k in filter_kw.replace("，", ",").split(",") if k.strip()] if filter_kw else []
 
                 try:
-                    results = list(search(query, num=num_results, lang="zh", pause=0))
+                    results = self._google_search(query, num=num_results, lang="zh")
                 except Exception as e:
                     self._log(f"⚠️ 搜索失败: {e}")
                     time.sleep(delay)
