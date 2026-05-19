@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Google 批量搜索工具 — 从 Excel 读取搜索词，批量搜索，关键词过滤，导出结果
-v3: CustomTkinter 现代 UI + undetected-chromedriver 真实浏览器搜索
+v4: ttkbootstrap 专业主题 UI + undetected-chromedriver 真实浏览器搜索
 """
 
 import os
@@ -14,7 +14,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import urllib.parse
 
-import customtkinter as ctk
+import ttkbootstrap as tb
+from ttkbootstrap.constants import *
+from ttkbootstrap.scrolled import ScrolledText
+
 import openpyxl
 
 import undetected_chromedriver as uc
@@ -22,32 +25,18 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# ── 全局主题配置 ────────────────────────────────────────
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
 
-ACCENT = "#3b82f6"
-ACCENT_HOVER = "#2563eb"
-BG_DARK = "#1a1a2e"
-BG_CARD = "#16213e"
-BG_CARD2 = "#0f3460"
-TEXT_PRIMARY = "#e2e8f0"
-TEXT_SECONDARY = "#94a3b8"
-GREEN = "#22c55e"
-RED = "#ef4444"
-YELLOW = "#eab308"
+THEMES = ["flatly", "litera", "cosmo", "minty", "journal", "lumen",
+          "darkly", "cyborg", "superhero", "solar", "vapor"]
 
 
-class GoogleBatchSearcher(ctk.CTk):
+class GoogleBatchSearcher:
     def __init__(self):
-        super().__init__()
+        self.root = tb.Window(themename="flatly")
+        self.root.title("Google Batch Searcher")
+        self.root.geometry("920x760")
+        self.root.minsize(750, 600)
 
-        self.title("Google Batch Searcher")
-        self.geometry("900x780")
-        self.resizable(True, True)
-        self.minsize(750, 600)
-
-        # 窗口图标 / 居中
         self._center_window()
 
         self.is_running = False
@@ -56,266 +45,169 @@ class GoogleBatchSearcher(ctk.CTk):
         self.driver_lock = threading.Lock()
 
         self._build_ui()
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # ── 窗口居中 ──────────────────────────────────────
+    # ── 窗口居中 ──
     def _center_window(self):
-        self.update_idletasks()
-        w, h = 900, 780
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
+        self.root.update_idletasks()
+        w, h = 920, 760
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
         x = (sw - w) // 2
         y = (sh - h) // 2
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
 
-    # ── 辅助控件 ──────────────────────────────────────
-    def _make_spin_entry(self, parent, default, width=64, from_val=1, to_val=50):
-        """创建带校验的数字输入框（替代 ttk.Spinbox）"""
-        var = ctk.StringVar(value=str(default))
-        entry = ctk.CTkEntry(parent, width=width, height=32, textvariable=var,
-                             justify="center")
-
-        def validate(char):
-            if char == "":
-                return True
-            if not char.isdigit():
-                return False
-            try:
-                v = int(var.get() + char)
-                return from_val <= v <= to_val
-            except ValueError:
-                return False
-
-        vcmd = self.register(validate)
-        entry.configure(validate="key", validatecommand=(vcmd, "%S"))
-        return entry, var
-
-    # ── UI 构建 ────────────────────────────────────────
+    # ── UI 构建 ──
     def _build_ui(self):
-        # ── 顶栏 ──
-        topbar = ctk.CTkFrame(self, height=44, fg_color=BG_DARK)
-        topbar.pack(fill=tk.X, padx=0, pady=0)
+        # ── 工具栏 ──
+        toolbar = ttk.Frame(self.root, style="primary.TFrame")
+        toolbar.pack(fill=tk.X)
 
-        ctk.CTkLabel(topbar, text="🔍 Google Batch Searcher",
-                     font=ctk.CTkFont(size=18, weight="bold"),
-                     text_color=TEXT_PRIMARY).pack(side=tk.LEFT, padx=20, pady=8)
+        inner = ttk.Frame(toolbar, style="primary.TFrame")
+        inner.pack(fill=tk.X, padx=16, pady=6)
 
-        # 主题切换
-        self.theme_btn = ctk.CTkButton(
-            topbar, text="☀️", width=36, height=36,
-            fg_color="transparent", hover_color=BG_CARD2,
-            command=self._toggle_theme
-        )
-        self.theme_btn.pack(side=tk.RIGHT, padx=12, pady=6)
+        tb_label = ttk.Label(inner, text="🔍  Google Batch Searcher",
+                             font=("Microsoft YaHei", 16, "bold"),
+                             foreground="white", background=tb.Style().colors.get("primary"),
+                             style="primary.Inverse.TLabel")
+        tb_label.pack(side=tk.LEFT)
 
-        self.appearance_label = ctk.CTkLabel(
-            topbar, text="Dark", font=ctk.CTkFont(size=11),
-            text_color=TEXT_SECONDARY
-        )
-        self.appearance_label.pack(side=tk.RIGHT, padx=(0, 4), pady=8)
+        # 主题选择
+        theme_frame = ttk.Frame(inner, style="primary.TFrame")
+        theme_frame.pack(side=tk.RIGHT)
 
-        # ── 主内容滚动区域 ──
-        content = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        content.pack(fill=tk.BOTH, expand=True, padx=16, pady=(10, 6))
+        ttk.Label(theme_frame, text="主题  ", foreground="white",
+                  background=tb.Style().colors.get("primary")).pack(side=tk.LEFT)
+        self.theme_cb = ttk.Combobox(theme_frame, values=THEMES, width=12, state="readonly")
+        self.theme_cb.set("flatly")
+        self.theme_cb.pack(side=tk.LEFT)
+        self.theme_cb.bind("<<ComboboxSelected>>", self._on_theme_change)
 
-        # ── 卡片 1: 输入配置 ──
-        card1 = ctk.CTkFrame(content, fg_color=BG_CARD, corner_radius=12)
-        card1.pack(fill=tk.X, pady=(0, 10))
+        # ── 主内容 ──
+        main = ttk.Frame(self.root)
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=(10, 6))
 
-        ctk.CTkLabel(card1, text="📂 输入配置", font=ctk.CTkFont(size=14, weight="bold"),
-                     text_color=TEXT_PRIMARY).pack(anchor=tk.W, padx=18, pady=(14, 10))
+        # ── 第 1 行: 输入配置 | 搜索参数 ──
+        row1 = ttk.Frame(main)
+        row1.pack(fill=tk.X, pady=(0, 8))
 
-        # Excel 选择
-        row_f = ctk.CTkFrame(card1, fg_color="transparent")
-        row_f.pack(fill=tk.X, padx=18, pady=(0, 8))
+        # 输入配置卡片
+        config_lf = ttk.Labelframe(row1, text="📂 输入配置", padding=(12, 8))
+        config_lf.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
 
-        ctk.CTkLabel(row_f, text="Excel 文件", width=80, anchor="w",
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 8))
-        self.excel_path_var = ctk.StringVar()
-        ctk.CTkEntry(row_f, textvariable=self.excel_path_var, height=32).pack(
-            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-        ctk.CTkButton(row_f, text="浏览", width=70, height=32,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                      command=self._browse_excel).pack(side=tk.RIGHT)
+        # Excel 文件行
+        ef = ttk.Frame(config_lf)
+        ef.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(ef, text="Excel 文件", width=9).pack(side=tk.LEFT, padx=(0, 4))
+        self.excel_path_var = tk.StringVar()
+        ttk.Entry(ef, textvariable=self.excel_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        ttk.Button(ef, text="浏览", bootstyle="outline-secondary", width=6,
+                   command=self._browse_excel).pack(side=tk.RIGHT)
 
-        # 列配置
-        row_c = ctk.CTkFrame(card1, fg_color="transparent")
-        row_c.pack(fill=tk.X, padx=18, pady=(0, 8))
+        # 列配置行
+        cf = ttk.Frame(config_lf)
+        cf.pack(fill=tk.X)
 
-        ctk.CTkLabel(row_c, text="Sheet 名", width=80, anchor="w",
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 8))
-        self.sheet_var = ctk.StringVar(value="Sheet1")
-        ctk.CTkEntry(row_c, textvariable=self.sheet_var, width=100, height=32).pack(
-            side=tk.LEFT, padx=(0, 16))
+        ttk.Label(cf, text="Sheet", width=5).pack(side=tk.LEFT, padx=(0, 2))
+        self.sheet_var = tk.StringVar(value="Sheet1")
+        ttk.Entry(cf, textvariable=self.sheet_var, width=9).pack(side=tk.LEFT, padx=(0, 10))
 
-        ctk.CTkLabel(row_c, text="搜索词列", anchor="w",
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
-        self.qcol_var = ctk.StringVar(value="A")
-        ctk.CTkEntry(row_c, textvariable=self.qcol_var, width=50, height=32,
-                     justify="center").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Label(cf, text="搜索词列").pack(side=tk.LEFT, padx=(0, 2))
+        self.qcol_var = tk.StringVar(value="A")
+        ttk.Entry(cf, textvariable=self.qcol_var, width=4, justify=tk.CENTER).pack(side=tk.LEFT, padx=(0, 10))
 
-        ctk.CTkLabel(row_c, text="过滤列", anchor="w",
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
-        self.fcol_var = ctk.StringVar(value="B")
-        ctk.CTkEntry(row_c, textvariable=self.fcol_var, width=50, height=32,
-                     justify="center").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(cf, text="过滤列").pack(side=tk.LEFT, padx=(0, 2))
+        self.fcol_var = tk.StringVar(value="B")
+        ttk.Entry(cf, textvariable=self.fcol_var, width=4, justify=tk.CENTER).pack(side=tk.LEFT, padx=(0, 6))
 
-        ctk.CTkLabel(row_c, text="(可选, 保留关键词用)", font=ctk.CTkFont(size=10),
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT)
+        ttk.Label(cf, text="(可选)", foreground="gray").pack(side=tk.LEFT)
 
-        # 搜索参数
-        row_p = ctk.CTkFrame(card1, fg_color="transparent")
-        row_p.pack(fill=tk.X, padx=18, pady=(4, 14))
+        # 搜索参数卡片
+        param_lf = ttk.Labelframe(row1, text="⚙️ 搜索参数", padding=(12, 8))
+        param_lf.pack(side=tk.RIGHT, fill=tk.Y)
 
-        ctk.CTkLabel(row_p, text="条数", width=50, anchor="w",
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
-        self.num_entry, self.num_var = self._make_spin_entry(row_p, 10, from_val=1, to_val=30)
-        self.num_entry.pack(side=tk.LEFT, padx=(0, 16))
+        pf = ttk.Frame(param_lf)
+        pf.pack()
 
-        ctk.CTkLabel(row_p, text="间隔(秒)", anchor="w",
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
-        self.delay_entry, self.delay_var = self._make_spin_entry(row_p, 3, from_val=1, to_val=15)
-        self.delay_entry.pack(side=tk.LEFT)
+        ttk.Label(pf, text="结果数").pack(side=tk.LEFT, padx=(0, 4))
+        self.num_var = tk.IntVar(value=10)
+        ttk.Spinbox(pf, from_=1, to=30, textvariable=self.num_var, width=5).pack(side=tk.LEFT, padx=(0, 12))
 
-        ctk.CTkLabel(row_p, text="(防封)", font=ctk.CTkFont(size=10),
-                     text_color=TEXT_SECONDARY).pack(side=tk.LEFT, padx=6)
+        ttk.Label(pf, text="间隔(秒)").pack(side=tk.LEFT, padx=(0, 4))
+        self.delay_var = tk.DoubleVar(value=3.0)
+        ttk.Spinbox(pf, from_=1, to=15, increment=0.5, textvariable=self.delay_var, width=5).pack(side=tk.LEFT)
 
-        # ── 卡片 2: 操作区 ──
-        card2 = ctk.CTkFrame(content, fg_color=BG_CARD, corner_radius=12)
-        card2.pack(fill=tk.X, pady=(0, 10))
+        # ── 第 2 行: 操作按钮 + 进度 ──
+        action_bar = ttk.Frame(main)
+        action_bar.pack(fill=tk.X, pady=(0, 8))
 
-        btn_row = ctk.CTkFrame(card2, fg_color="transparent")
-        btn_row.pack(fill=tk.X, padx=18, pady=14)
+        self.start_btn = ttk.Button(action_bar, text="🔍 开始批量搜索",
+                                    bootstyle="primary", command=self.do_search)
+        self.start_btn.pack(side=tk.LEFT, padx=(0, 4))
 
-        self.start_btn = ctk.CTkButton(btn_row, text="🔍 开始批量搜索", height=38,
-                                        fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                                        font=ctk.CTkFont(size=14, weight="bold"),
-                                        command=self.do_search)
-        self.start_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self.stop_btn = ttk.Button(action_bar, text="⏹ 停止",
+                                   bootstyle="danger", state=tk.DISABLED, command=self._stop)
+        self.stop_btn.pack(side=tk.LEFT, padx=(0, 4))
 
-        self.stop_btn = ctk.CTkButton(btn_row, text="⏹ 停止", height=38,
-                                       fg_color=RED, hover_color="#dc2626",
-                                       state=tk.DISABLED, command=self._stop)
-        self.stop_btn.pack(side=tk.LEFT, padx=(0, 8))
-
-        self.export_btn = ctk.CTkButton(btn_row, text="📥 导出 Excel", height=38,
-                                         fg_color=GREEN, hover_color="#16a34a",
-                                         state=tk.DISABLED, command=self.do_export)
+        self.export_btn = ttk.Button(action_bar, text="📥 导出 Excel",
+                                     bootstyle="success", state=tk.DISABLED, command=self.do_export)
         self.export_btn.pack(side=tk.LEFT)
 
-        # 进度条
-        self.progress = ctk.CTkProgressBar(btn_row, width=200, height=12,
-                                            fg_color=BG_CARD2, progress_color=ACCENT)
-        self.progress.pack(side=tk.RIGHT, padx=(8, 8))
-        self.progress.set(0)
+        self.progress = ttk.Progressbar(action_bar, mode="determinate", length=200,
+                                        bootstyle="primary-striped")
+        self.progress.pack(side=tk.RIGHT, padx=(8, 4))
+        self.progress["maximum"] = 100
 
-        self.progress_label = ctk.CTkLabel(btn_row, text="", text_color=TEXT_SECONDARY,
-                                           font=ctk.CTkFont(size=11))
-        self.progress_label.pack(side=tk.RIGHT)
+        self.progress_label = ttk.Label(action_bar, text="就绪", foreground="gray")
+        self.progress_label.pack(side=tk.RIGHT, padx=(0, 4))
 
-        # ── 卡片 3: 搜索结果 ──
-        card3 = ctk.CTkFrame(content, fg_color=BG_CARD, corner_radius=12)
-        card3.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
-        ctk.CTkLabel(card3, text="📋 搜索结果", font=ctk.CTkFont(size=14, weight="bold"),
-                     text_color=TEXT_PRIMARY).pack(anchor=tk.W, padx=18, pady=(14, 8))
-
-        # Treeview 容器
-        tree_frame = tk.Frame(card3, bg=BG_CARD)
-        tree_frame.pack(fill=tk.BOTH, expand=True, padx=18, pady=(0, 8))
-
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("Results.Treeview",
-                        background="#1e293b",
-                        foreground="#e2e8f0",
-                        fieldbackground="#1e293b",
-                        borderwidth=0,
-                        rowheight=28)
-        style.configure("Results.Treeview.Heading",
-                        background=BG_CARD2,
-                        foreground=TEXT_PRIMARY,
-                        borderwidth=0,
-                        font=("Microsoft YaHei", 10, "bold"))
-        style.map("Results.Treeview",
-                  background=[("selected", ACCENT)],
-                  foreground=[("selected", "#ffffff")])
+        # ── 第 3 行: 搜索结果 ──
+        result_lf = ttk.Labelframe(main, text="📋 搜索结果", padding=(12, 8))
+        result_lf.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
 
         cols = ("query", "title", "url", "kept")
-        self.result_tree = ttk.Treeview(tree_frame, columns=cols, show="headings",
-                                        height=10, style="Results.Treeview")
+        self.result_tree = ttk.Treeview(result_lf, columns=cols, show="headings",
+                                        height=10, bootstyle="primary")
         self.result_tree.heading("query", text="搜索词")
         self.result_tree.heading("title", text="标题")
         self.result_tree.heading("url", text="链接")
         self.result_tree.heading("kept", text="保留")
         self.result_tree.column("query", width=100, minwidth=80)
         self.result_tree.column("title", width=200, minwidth=100)
-        self.result_tree.column("url", width=360, minwidth=150)
+        self.result_tree.column("url", width=380, minwidth=150)
         self.result_tree.column("kept", width=50, anchor=tk.CENTER, minwidth=40)
 
-        sy = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.result_tree.yview)
-        sx = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.result_tree.xview)
+        sy = ttk.Scrollbar(result_lf, orient=tk.VERTICAL, command=self.result_tree.yview)
+        sx = ttk.Scrollbar(result_lf, orient=tk.HORIZONTAL, command=self.result_tree.xview)
         self.result_tree.configure(yscrollcommand=sy.set, xscrollcommand=sx.set)
         self.result_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sy.pack(side=tk.RIGHT, fill=tk.Y)
         sx.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # 双击复制
         self.result_tree.bind("<Double-1>", self._copy_url)
 
-        # ── 卡片 4: 日志 ──
-        card4 = ctk.CTkFrame(content, fg_color=BG_CARD, corner_radius=12)
-        card4.pack(fill=tk.X, pady=(0, 6))
+        # ── 第 4 行: 日志 ──
+        log_lf = ttk.Labelframe(main, text="📜 运行日志", padding=(12, 6))
+        log_lf.pack(fill=tk.X, pady=(0, 4))
 
-        ctk.CTkLabel(card4, text="📜 运行日志", font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=TEXT_SECONDARY).pack(anchor=tk.W, padx=18, pady=(10, 4))
+        self.log_text = ScrolledText(log_lf, height=4, autohide=True,
+                                     font=("Consolas", 10))
+        self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        self.log_box = ctk.CTkTextbox(card4, height=90, fg_color=BG_DARK,
-                                       corner_radius=8, border_width=0,
-                                       font=ctk.CTkFont(family="Consolas", size=11),
-                                       text_color=TEXT_SECONDARY,
-                                       activate_scrollbars=True)
-        self.log_box.pack(fill=tk.X, padx=18, pady=(0, 12))
-        self.log_box.configure(state=tk.DISABLED)
+    # ── 主题切换 ──
+    def _on_theme_change(self, event=None):
+        theme = self.theme_cb.get()
+        tb.Style().theme_use(theme)
 
-    # ── 主题切换 ──────────────────────────────────────
-    def _toggle_theme(self):
-        current = ctk.get_appearance_mode()
-        new = "Light" if current == "Dark" else "Dark"
-        ctk.set_appearance_mode(new)
-        self.appearance_label.configure(text=new)
-        self.theme_btn.configure(text="🌙" if new == "Dark" else "☀️")
-
-        # 更新 Treeview 颜色以适应主题
-        style = ttk.Style()
-        if new == "Light":
-            style.configure("Results.Treeview",
-                            background="#f8fafc",
-                            foreground="#1e293b",
-                            fieldbackground="#f8fafc")
-            style.configure("Results.Treeview.Heading",
-                            background="#e2e8f0",
-                            foreground="#1e293b")
-        else:
-            style.configure("Results.Treeview",
-                            background="#1e293b",
-                            foreground="#e2e8f0",
-                            fieldbackground="#1e293b")
-            style.configure("Results.Treeview.Heading",
-                            background=BG_CARD2,
-                            foreground=TEXT_PRIMARY)
-
-    # ── 日志 ──────────────────────────────────────────
+    # ── 日志 ──
     def _log(self, msg: str):
         def _write():
-            self.log_box.configure(state=tk.NORMAL)
             ts = datetime.now().strftime("%H:%M:%S")
-            self.log_box.insert(tk.END, f"[{ts}] {msg}\n")
-            self.log_box.see(tk.END)
-            self.log_box.configure(state=tk.DISABLED)
-        self.after(0, _write)
+            self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
+            self.log_text.see(tk.END)
+        self.root.after(0, _write)
 
-    # ── 文件浏览 ──────────────────────────────────────
+    # ── 文件浏览 ──
     def _browse_excel(self):
         path = filedialog.askopenfilename(
             title="选择 Excel 文件",
@@ -324,12 +216,12 @@ class GoogleBatchSearcher(ctk.CTk):
         if path:
             self.excel_path_var.set(path)
 
-    # ── 关闭 ──────────────────────────────────────────
+    # ── 关闭 ──
     def _on_close(self):
         self._cleanup_driver()
-        self.destroy()
+        self.root.destroy()
 
-    # ── 浏览器管理 ─────────────────────────────────────
+    # ── 浏览器管理 ──
     def _init_driver(self):
         if self.driver is not None:
             return
@@ -356,7 +248,7 @@ class GoogleBatchSearcher(ctk.CTk):
             self.driver = None
             self._log("🧹 Chrome 浏览器已关闭")
 
-    # ── Google 搜索核心 ─────────────────────────────────
+    # ── Google 搜索核心 ──
     def _google_search(self, query: str, num: int = 10, lang: str = "zh") -> list[str]:
         with self.driver_lock:
             if self.driver is None:
@@ -382,7 +274,6 @@ class GoogleBatchSearcher(ctk.CTk):
                     raise Exception("Google 弹出同意页，请手动点击 Accept all 后重试")
                 time.sleep(2)
 
-            # 策略 1: a[jsname="UWckNb"]
             try:
                 for link in self.driver.find_elements(By.CSS_SELECTOR, 'a[jsname="UWckNb"]'):
                     href = link.get_attribute("href")
@@ -394,7 +285,6 @@ class GoogleBatchSearcher(ctk.CTk):
             except Exception:
                 pass
 
-            # 策略 2: h3 parent a
             if not urls:
                 try:
                     for h3 in self.driver.find_elements(By.TAG_NAME, "h3"):
@@ -411,7 +301,6 @@ class GoogleBatchSearcher(ctk.CTk):
                 except Exception:
                     pass
 
-            # 策略 3: 宽泛提取
             if not urls:
                 try:
                     for link in self.driver.find_elements(By.CSS_SELECTOR, 'a[href^="http"]'):
@@ -429,7 +318,7 @@ class GoogleBatchSearcher(ctk.CTk):
 
             return urls
 
-    # ── 列号转换 ──────────────────────────────────────
+    # ── 工具方法 ──
     def _col_to_index(self, col_letter: str) -> int:
         col_letter = col_letter.strip().upper()
         r = 0
@@ -437,21 +326,19 @@ class GoogleBatchSearcher(ctk.CTk):
             r = r * 26 + (ord(c) - ord('A') + 1)
         return r - 1
 
-    # ── 停止 ──────────────────────────────────────────
     def _stop(self):
         self.is_running = False
         self._log("⏹ 用户停止了搜索")
 
-    # ── 双击复制链接 ──────────────────────────────────
     def _copy_url(self, event):
         sel = self.result_tree.selection()
         if sel:
             url = self.result_tree.item(sel[0], "values")[2]
-            self.clipboard_clear()
-            self.clipboard_append(url)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
             self._log(f"📋 已复制: {url}")
 
-    # ── 批量搜索 ──────────────────────────────────────
+    # ── 批量搜索 ──
     def do_search(self):
         excel_path = self.excel_path_var.get().strip()
         if not excel_path or not Path(excel_path).exists():
@@ -463,9 +350,9 @@ class GoogleBatchSearcher(ctk.CTk):
         filter_col = self.fcol_var.get().strip() or ""
 
         try:
-            num_results = int(self.num_var.get())
-            delay = float(self.delay_var.get())
-        except ValueError:
+            num_results = self.num_var.get()
+            delay = self.delay_var.get()
+        except (tk.TclError, ValueError):
             messagebox.showerror("错误", "条数或间隔格式不对")
             return
 
@@ -514,7 +401,7 @@ class GoogleBatchSearcher(ctk.CTk):
         self.start_btn.configure(state=tk.DISABLED)
         self.stop_btn.configure(state=tk.NORMAL)
         self.export_btn.configure(state=tk.DISABLED)
-        self.progress.set(0)
+        self.progress["value"] = 0
 
         def _run():
             total = len(rows_data)
@@ -522,9 +409,10 @@ class GoogleBatchSearcher(ctk.CTk):
                 if not self.is_running:
                     break
 
+                pct = int((i + 1) / total * 100)
                 self.progress_label.configure(text=f"{i+1}/{total}")
-                self.progress.set((i + 1) / total)
-                self.update_idletasks()
+                self.progress["value"] = pct
+                self.root.update_idletasks()
 
                 self._log(f"🔍 [{i+1}/{total}] 搜索: {query}")
 
@@ -552,8 +440,8 @@ class GoogleBatchSearcher(ctk.CTk):
                         kept += 1
 
                     status = "✅" if is_kept else "⏭️"
-                    self.after(0, lambda q=query, t=title, u=url, s=status:
-                               self.result_tree.insert("", tk.END, values=(q, t, u, s)))
+                    self.root.after(0, lambda q=query, t=title, u=url, s=status:
+                                    self.result_tree.insert("", tk.END, values=(q, t, u, s)))
 
                 msg = f"    → {len(results)} 条结果"
                 if include_kw:
@@ -565,6 +453,7 @@ class GoogleBatchSearcher(ctk.CTk):
             kept_total = sum(1 for r in self.all_results if r["kept"])
             self._log(f"✅ 搜索完成 — 共 {len(self.all_results)} 条, 保留 {kept_total} 条")
             self.progress_label.configure(text=f"完成 {len(self.all_results)} 条")
+            self.progress["value"] = 100
             self.start_btn.configure(state=tk.NORMAL)
             self.stop_btn.configure(state=tk.DISABLED)
             self.export_btn.configure(state=tk.NORMAL if self.all_results else tk.DISABLED)
@@ -572,7 +461,7 @@ class GoogleBatchSearcher(ctk.CTk):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    # ── 导出 Excel ────────────────────────────────────
+    # ── 导出 Excel ──
     def do_export(self):
         kept = [r for r in self.all_results if r["kept"]]
         if not kept:
@@ -603,10 +492,12 @@ class GoogleBatchSearcher(ctk.CTk):
         self._log(f"📥 已导出: {out_path}")
         messagebox.showinfo("导出成功", f"结果已保存到:\n{out_path}\n\n{len(kept)} 条保留 / {len(self.all_results)} 条全部")
 
+    def run(self):
+        self.root.mainloop()
+
 
 def main():
-    app = GoogleBatchSearcher()
-    app.mainloop()
+    GoogleBatchSearcher().run()
 
 
 if __name__ == "__main__":
