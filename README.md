@@ -4,12 +4,14 @@
 
 ## ✨ 功能
 
+- 🎨 **现代 UI** — CustomTkinter 打造，深色/浅色主题一键切换，圆角卡片布局
 - 📂 **Excel 驱动** — 搜索词写在 Excel 里，工具自动逐条搜索
 - 🦊 **真实浏览器搜索** — 使用 undetected-chromedriver 启动 Chrome，绕过 Google 反爬检测
 - 🔍 **批量 Google 搜索** — 每条搜索词可返回 1-30 个结果
 - 🎯 **关键词过滤** — 支持"保留关键词"列，只保留链接包含指定关键词的结果
 - 📋 **实时预览** — 搜索结果实时显示，保留/跳过分色标识
 - 📥 **导出 Excel** — 两个 Sheet：全部结果 + 仅保留结果
+- 🌓 **主题切换** — 点击顶栏 ☀️/🌙 按钮切换深色/浅色模式
 - ⏹ **随时停止** — 可中途取消搜索
 - ⏱️ **可调间隔** — 防止 Google 限流
 
@@ -69,6 +71,7 @@ python searcher.py
 ```
 selenium
 undetected-chromedriver
+customtkinter
 openpyxl
 ```
 
@@ -76,7 +79,7 @@ openpyxl
 
 ```
 google-batch-searcher/
-├── searcher.py          # 主程序（Tkinter GUI）
+├── searcher.py          # 主程序（CustomTkinter 现代 GUI）
 ├── 搜索词示例.xlsx       # Excel 模板
 ├── requirements.txt     # 依赖
 ├── 启动搜索工具.bat      # Windows 一键启动
