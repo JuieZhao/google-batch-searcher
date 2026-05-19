@@ -160,7 +160,7 @@ class GoogleBatchSearcher(ctk.CTk):
         ctk.CTkEntry(row_c, textvariable=self.fcol_var, width=50, height=32,
                      justify="center").pack(side=tk.LEFT, padx=(0, 8))
 
-        ctk.CTkLabel(row_c, text="(可选, 保留关键词用)', font=ctk.CTkFont(size=10),
+        ctk.CTkLabel(row_c, text="(可选, 保留关键词用)", font=ctk.CTkFont(size=10),
                      text_color=TEXT_SECONDARY).pack(side=tk.LEFT)
 
         # 搜索参数
