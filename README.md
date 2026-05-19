@@ -1,16 +1,17 @@
 # 🔍 Google Batch Searcher — 批量 Google 搜索工具
 
-从 Excel 读取搜索词，批量搜索 Google，按关键词过滤结果，导出链接。
+从 Excel 读取搜索词，通过真实 Chrome 浏览器批量搜索 Google，按关键词过滤结果，导出链接。
 
 ## ✨ 功能
 
 - 📂 **Excel 驱动** — 搜索词写在 Excel 里，工具自动逐条搜索
-- 🔍 **批量 Google 搜索** — 每条搜索词可返回 1-50 个结果
+- 🦊 **真实浏览器搜索** — 使用 undetected-chromedriver 启动 Chrome，绕过 Google 反爬检测
+- 🔍 **批量 Google 搜索** — 每条搜索词可返回 1-30 个结果
 - 🎯 **关键词过滤** — 支持"保留关键词"列，只保留链接包含指定关键词的结果
 - 📋 **实时预览** — 搜索结果实时显示，保留/跳过分色标识
 - 📥 **导出 Excel** — 两个 Sheet：全部结果 + 仅保留结果
 - ⏹ **随时停止** — 可中途取消搜索
-- ⏱️ **可调间隔** — 防止 Google 限流封 IP
+- ⏱️ **可调间隔** — 防止 Google 限流
 
 ## 📊 Excel 格式
 
@@ -32,33 +33,42 @@
 
 ## 🚀 使用
 
-```bash
-# 安装依赖
-pip install requests beautifulsoup4 openpyxl
+### 安装依赖
 
-# 运行
+```bash
+pip install -r requirements.txt
+```
+
+### 运行
+
+```bash
 python searcher.py
 
 # 或双击
 启动搜索工具.bat
 ```
 
+首次运行会自动启动 Chrome 浏览器窗口，这是正常的，**请勿手动关闭**。
+
 ## 📋 系统要求
 
 - Python 3.9+
+- Google Chrome 浏览器
 - 网络能访问 Google（需要科学上网）
 
 ## 🛡️ 注意事项
 
-- 搜索间隔建议 ≥ 2 秒，太频繁会被 Google 限流（429）
-- 工具通过 Chrome 浏览器 UA 模拟正常访问
+- 搜索时会弹出 Chrome 窗口，请勿手动关闭或操作该窗口内的搜索页面
+- 搜索间隔建议 ≥ 3 秒，太频繁可能触发 Google CAPTCHA
+- 如遇到 Google 同意页/CAPTCHA，可手动在 Chrome 窗口完成验证后自动继续
+- 搜索完成后浏览器会自动关闭
 - 仅供个人研究学习使用
 
 ## 📦 依赖
 
 ```
-requests
-beautifulsoup4
+selenium
+undetected-chromedriver
 openpyxl
 ```
 
@@ -66,11 +76,16 @@ openpyxl
 
 ```
 google-batch-searcher/
-├── searcher.py          # 主程序
+├── searcher.py          # 主程序（Tkinter GUI）
 ├── 搜索词示例.xlsx       # Excel 模板
 ├── requirements.txt     # 依赖
-└── 启动搜索工具.bat      # Windows 一键启动
+├── 启动搜索工具.bat      # Windows 一键启动
+└── README.md
 ```
+
+## ❓ 为什么用真实浏览器而不是直接 HTTP 请求？
+
+Google 会检测并拦截来自 Python `requests`/`urllib` 等库的直接 HTTP 请求，返回验证页面（CAPTCHA 或 consent page），导致搜索结果始终为 0。`undetected-chromedriver` 通过启动真实的 Chrome 浏览器、修改底层检测特征，让 Google 认为这是正常用户访问，从而返回真实搜索结果。
 
 ## ⚠️ 免责声明
 

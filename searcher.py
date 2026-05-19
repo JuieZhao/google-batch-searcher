@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Google 批量搜索工具 — 从 Excel 读取搜索词，批量搜索，关键词过滤，导出结果
+v2: 使用 undetected-chromedriver（真实 Chrome 浏览器）绕过 Google 反爬
 """
 
 import os
@@ -12,41 +13,47 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
 
-import requests
-from bs4 import BeautifulSoup
 import openpyxl
 import urllib.parse
 
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 
 class GoogleBatchSearcher:
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    }
     def __init__(self, root):
         self.root = root
-        self.root.title("Google 批量搜索工具")
-        self.root.geometry("820x680")
+        self.root.title("Google 批量搜索工具 🦇")
+        self.root.geometry("840x720")
         self.root.resizable(True, True)
         self.root.minsize(700, 550)
 
         self.is_running = False
         self.all_results = []  # [{query, title, url, desc, kept}]
+        self.driver = None
+        self.driver_lock = threading.Lock()
 
         self._build_ui()
 
+        # 关闭窗口时清理浏览器
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ── UI ──────────────────────────────────────────────
     def _build_ui(self):
         # 顶部标题
         header = tk.Frame(self.root, bg="#fafafa", height=36)
         header.pack(fill=tk.X, padx=16, pady=(10, 0))
-        tk.Label(header, text="Google 批量搜索工具", font=("Microsoft YaHei", 15, "bold"),
+        tk.Label(header, text="Google 批量搜索工具 (浏览器版)", font=("Microsoft YaHei", 15, "bold"),
                  fg="#1d1d1f", bg="#fafafa").pack(side=tk.LEFT)
 
         # ---- 设置区域 ----
         card = tk.Frame(self.root, bg="white", highlightbackground="#e0e0e0", highlightthickness=1)
         card.pack(fill=tk.X, padx=16, pady=10)
 
-        ttk.Label(card, text="📂 输入配置", font=("Microsoft YaHei", 10, "bold"), background="white").pack(anchor=tk.W, padx=12, pady=(10, 6))
+        ttk.Label(card, text="📂 输入配置", font=("Microsoft YaHei", 10, "bold"),
+                  background="white").pack(anchor=tk.W, padx=12, pady=(10, 6))
 
         # Excel 文件
         row1 = tk.Frame(card, bg="white")
@@ -72,18 +79,18 @@ class GoogleBatchSearcher:
         ttk.Entry(row2, textvariable=self.filter_col_var, width=5).pack(side=tk.LEFT, padx=3)
 
         ttk.Label(row2, text="(该列填需保留的关键词，逗号分隔，可选)", font=("Microsoft YaHei", 7),
-                 foreground="#999", background="white").pack(side=tk.LEFT, padx=5)
+                  foreground="#999", background="white").pack(side=tk.LEFT, padx=5)
 
         # 搜索参数
         row3 = tk.Frame(card, bg="white")
         row3.pack(fill=tk.X, padx=12, pady=(3, 10))
         ttk.Label(row3, text="每条搜", width=10, background="white").pack(side=tk.LEFT)
         self.num_results_var = tk.IntVar(value=10)
-        ttk.Spinbox(row3, from_=1, to=50, textvariable=self.num_results_var, width=5).pack(side=tk.LEFT)
+        ttk.Spinbox(row3, from_=1, to=30, textvariable=self.num_results_var, width=5).pack(side=tk.LEFT)
         ttk.Label(row3, text="条结果", background="white").pack(side=tk.LEFT)
         ttk.Label(row3, text="搜索间隔:", background="white").pack(side=tk.LEFT, padx=(15, 0))
-        self.delay_var = tk.DoubleVar(value=2.0)
-        ttk.Spinbox(row3, from_=0.5, to=10, increment=0.5, textvariable=self.delay_var, width=5).pack(side=tk.LEFT)
+        self.delay_var = tk.DoubleVar(value=3.0)
+        ttk.Spinbox(row3, from_=1, to=15, increment=0.5, textvariable=self.delay_var, width=5).pack(side=tk.LEFT)
         ttk.Label(row3, text="秒（防封）", background="white").pack(side=tk.LEFT)
 
         # ---- 操作按钮 + 进度 ----
@@ -109,7 +116,7 @@ class GoogleBatchSearcher:
         result_card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 5))
 
         ttk.Label(result_card, text="📋 搜索结果预览", font=("Microsoft YaHei", 10, "bold"),
-                 background="white").pack(anchor=tk.W, padx=12, pady=(10, 6))
+                  background="white").pack(anchor=tk.W, padx=12, pady=(10, 6))
 
         cols = ("query", "title", "url", "kept")
         self.result_tree = ttk.Treeview(result_card, columns=cols, show="headings", height=12)
@@ -119,7 +126,7 @@ class GoogleBatchSearcher:
         self.result_tree.heading("kept", text="保留")
         self.result_tree.column("query", width=100, minwidth=80)
         self.result_tree.column("title", width=220, minwidth=120)
-        self.result_tree.column("url", width=280, minwidth=150)
+        self.result_tree.column("url", width=300, minwidth=150)
         self.result_tree.column("kept", width=50, anchor=tk.CENTER, minwidth=40)
 
         sy = ttk.Scrollbar(result_card, orient=tk.VERTICAL, command=self.result_tree.yview)
@@ -129,7 +136,6 @@ class GoogleBatchSearcher:
         sy.pack(side=tk.RIGHT, fill=tk.Y)
         sx.pack(side=tk.BOTTOM, fill=tk.X, padx=12)
 
-        # 双击复制链接
         self.result_tree.bind("<Double-1>", self._copy_url)
 
         # ---- 日志 ----
@@ -141,11 +147,14 @@ class GoogleBatchSearcher:
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
     def _log(self, msg):
-        self.log_text.configure(state=tk.NORMAL)
-        ts = datetime.now().strftime("%H:%M:%S")
-        self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
-        self.log_text.see(tk.END)
-        self.log_text.configure(state=tk.DISABLED)
+        """线程安全地写入日志"""
+        def _write():
+            self.log_text.configure(state=tk.NORMAL)
+            ts = datetime.now().strftime("%H:%M:%S")
+            self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
+            self.log_text.see(tk.END)
+            self.log_text.configure(state=tk.DISABLED)
+        self.root.after(0, _write)
 
     def _browse_excel(self):
         path = filedialog.askopenfilename(
@@ -155,64 +164,135 @@ class GoogleBatchSearcher:
         if path:
             self.excel_path_var.set(path)
 
-    def _google_search(self, query: str, num: int = 10, lang: str = "zh") -> list[str]:
-        """手动抓取 Google 搜索结果链接，返回 URL 列表"""
-        urls = []
-        params = {
-            "q": query,
-            "num": min(num, 20),
-            "hl": lang,
-        }
-        encoded = urllib.parse.urlencode(params)
-        url = f"https://www.google.com/search?{encoded}"
+    def _on_close(self):
+        """关闭窗口前清理浏览器"""
+        self._cleanup_driver()
+        self.root.destroy()
+
+    # ── 浏览器管理 ─────────────────────────────────────
+    def _init_driver(self):
+        """初始化 undetected Chrome 浏览器（只调一次）"""
+        if self.driver is not None:
+            return
+
+        self._log("🚀 正在启动 Chrome 浏览器...")
+        options = uc.ChromeOptions()
+        # 一些反检测和性能优化
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--no-first-run")
+        options.add_argument("--no-default-browser-check")
+        options.add_argument("--disable-gpu")
+        # 如果想隐藏窗口（无头模式存在风险，更容易被检测），不要加 --headless
+        # options.add_argument("--headless=new")   # 不推荐，除非确认能工作
 
         try:
-            resp = requests.get(url, headers=self.HEADERS, timeout=15)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            # 现代 Google 搜索结果结构
-            for g in soup.select("a[href^='/url?q=']"):
-                href = g.get("href", "")
-                if not href:
-                    continue
-                # 提取真实 URL
-                parsed = urllib.parse.urlparse(href)
-                qs = urllib.parse.parse_qs(parsed.query)
-                real_url = qs.get("q", [None])[0]
-                if real_url and real_url.startswith("http"):
-                    if real_url not in urls:
-                        urls.append(real_url)
-                if len(urls) >= num:
-                    break
-
-            # 备用选择器（如果上面的没抓到）
-            if not urls:
-                for link in soup.select("a[href]"):
-                    href = link.get("href", "")
-                    if href.startswith("/url?q=") and "google" not in href:
-                        real = href.split("/url?q=")[1].split("&")[0]
-                        real = urllib.parse.unquote(real)
-                        if real.startswith("http") and real not in urls:
-                            urls.append(real)
-                        if len(urls) >= num:
-                            break
-
-        except requests.exceptions.HTTPError as e:
-            if e.response is not None and e.response.status_code == 429:
-                raise Exception("Google 返回 429 (请求太频繁)，请增大搜索间隔或稍后再试")
+            self.driver = uc.Chrome(options=options, version_main=None)
+            self.driver.set_page_load_timeout(30)
+            self._log("✅ Chrome 浏览器已启动")
+        except Exception as e:
+            self._log(f"❌ 启动浏览器失败: {e}")
             raise
-        except requests.exceptions.Timeout:
-            raise Exception("请求超时，请检查网络或稍后重试")
 
-        return urls
-        path = filedialog.askopenfilename(
-            title="选择 Excel 文件",
-            filetypes=[("Excel 文件", "*.xlsx *.xls"), ("所有文件", "*.*")]
-        )
-        if path:
-            self.excel_path_var.set(path)
+    def _cleanup_driver(self):
+        """关闭浏览器"""
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
+            self.driver = None
+            self._log("🧹 Chrome 浏览器已关闭")
 
+    # ── Google 搜索核心（Selenium 版）────────────────────
+    def _google_search(self, query: str, num: int = 10, lang: str = "zh") -> list[str]:
+        """
+        使用真实 Chrome 浏览器搜索 Google，返回结果 URL 列表。
+        线程安全：通过 driver_lock 确保同一时间只有一个线程操作浏览器。
+        """
+        with self.driver_lock:
+            if self.driver is None:
+                self._init_driver()
+
+            urls = []
+            params = {
+                "q": query,
+                "num": min(num, 30),
+                "hl": lang,
+            }
+            encoded = urllib.parse.urlencode(params)
+            search_url = f"https://www.google.com/search?{encoded}"
+
+            try:
+                self.driver.get(search_url)
+            except Exception as e:
+                raise Exception(f"页面加载失败: {e}")
+
+            # 等待搜索结果出现
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "#search"))
+                )
+            except Exception:
+                # 可能碰到了 Google consent / CAPTCHA 页面
+                page_text = self.driver.page_source[:2000].lower()
+                if "captcha" in page_text or "unusual traffic" in page_text:
+                    raise Exception("Google 触发了 CAPTCHA 验证，请手动在浏览器中完成验证后重试")
+                if "consent.google" in self.driver.current_url or "before you continue" in page_text:
+                    raise Exception("Google 弹出同意页面，请手动在浏览器中点击「Accept all」后重试")
+                # 不是 consent 页面，可能只是加载慢，继续尝试提取结果
+                time.sleep(2)
+
+            # 提取搜索结果链接
+            # 策略 1: 通过 a[jsname="UWckNb"]（Google 2024+ 有机结果链接）
+            try:
+                result_links = self.driver.find_elements(By.CSS_SELECTOR, 'a[jsname="UWckNb"]')
+                for link in result_links:
+                    href = link.get_attribute("href")
+                    if href and href.startswith("http") and "google.com" not in href:
+                        if href not in urls:
+                            urls.append(href)
+                        if len(urls) >= num:
+                            return urls[:num]
+            except Exception:
+                pass
+
+            # 策略 2: 从 h3 中提取链接（备选）
+            if not urls:
+                try:
+                    for h3 in self.driver.find_elements(By.TAG_NAME, "h3"):
+                        try:
+                            parent_a = h3.find_element(By.XPATH, "./ancestor::a")
+                            href = parent_a.get_attribute("href")
+                            if href and href.startswith("http") and "google.com" not in href:
+                                if href not in urls:
+                                    urls.append(href)
+                        except Exception:
+                            continue
+                        if len(urls) >= num:
+                            return urls[:num]
+                except Exception:
+                    pass
+
+            # 策略 3: 宽泛匹配所有外部链接
+            if not urls:
+                try:
+                    all_links = self.driver.find_elements(By.CSS_SELECTOR, 'a[href^="http"]')
+                    for link in all_links:
+                        href = link.get_attribute("href")
+                        if href and not any(d in href for d in [
+                            "google.com", "googleadservices.com", "youtube.com",
+                            "accounts.google", "policies.google", "support.google",
+                        ]):
+                            if href not in urls:
+                                urls.append(href)
+                            if len(urls) >= num:
+                                return urls[:num]
+                except Exception:
+                    pass
+
+            return urls[:num]
+
+    # ── 工具方法 ───────────────────────────────────────
     def _col_to_index(self, col_letter: str) -> int:
         """A=0, B=1, ..."""
         col_letter = col_letter.strip().upper()
@@ -233,6 +313,7 @@ class GoogleBatchSearcher:
             self.root.clipboard_append(url)
             self._log(f"📋 已复制: {url}")
 
+    # ── 搜索与导出 ─────────────────────────────────────
     def do_search(self):
         excel_path = self.excel_path_var.get().strip()
         if not excel_path or not Path(excel_path).exists():
@@ -282,7 +363,7 @@ class GoogleBatchSearcher:
             return
 
         self._log(f"📖 读取到 {len(rows_data)} 条搜索词")
-        self._log(f"⚙️ 每条 {num_results} 个结果 | 间隔 {delay}s")
+        self._log(f"⚙️ 每条 {num_results} 个结果 | 间隔 {delay}s | 浏览器模式")
 
         # 清理旧结果
         self.all_results.clear()
@@ -309,7 +390,10 @@ class GoogleBatchSearcher:
                 self._log(f"🔍 [{i+1}/{total}] 搜索: {query}")
 
                 # 解析过滤关键词
-                include_kw = [k.strip().lower() for k in filter_kw.replace("，", ",").split(",") if k.strip()] if filter_kw else []
+                include_kw = (
+                    [k.strip().lower() for k in filter_kw.replace("，", ",").split(",") if k.strip()]
+                    if filter_kw else []
+                )
 
                 try:
                     results = self._google_search(query, num=num_results, lang="zh")
@@ -341,14 +425,20 @@ class GoogleBatchSearcher:
                     self.root.after(0, lambda q=query, t=title, u=url, s=status:
                                     self.result_tree.insert("", tk.END, values=(q, t, u, s)))
 
-                self._log(f"    → {len(results)} 条结果, 保留 {kept} 条" if include_kw else f"    → {len(results)} 条结果")
+                msg = f"    → {len(results)} 条结果"
+                if include_kw:
+                    msg += f", 保留 {kept} 条"
+                self._log(msg)
 
                 time.sleep(delay)
 
             # 完成
+            self._cleanup_driver()
             kept_total = sum(1 for r in self.all_results if r["kept"])
             self._log(f"✅ 搜索完成 — 共 {len(self.all_results)} 条结果, 保留 {kept_total} 条")
-            self.progress_label.configure(text=f"完成 {len(self.all_results)} 条" if self.is_running else "已停止")
+            self.progress_label.configure(
+                text=f"完成 {len(self.all_results)} 条" if self.is_running else "已停止"
+            )
             self.start_btn.configure(state=tk.NORMAL)
             self.stop_btn.configure(state=tk.DISABLED)
             self.export_btn.configure(state=tk.NORMAL if self.all_results else tk.DISABLED)
